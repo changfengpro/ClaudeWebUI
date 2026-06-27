@@ -21,6 +21,24 @@
 - 子进程的流式 JSON 输出逐行解析，通过 SSE 推给浏览器实时显示。
 - 会话内容另存一份在 `data/conversations/<id>.json`（与 CLI 的会话文件分离），供网页列表、搜索、导出使用。
 
+## 请求指纹与 claude-cli 一致
+
+claude-web **自身不发任何 API 请求**。每一个到 `api.anthropic.com` 的请求都是被 spawn 的真实 `claude` 二进制发出的，因此云端看到的请求与你直接用 claude CLI 完全一致——不是模仿，是同一个进程。
+
+已用本地 MITM 代理实测对比"原生 `claude -p`"与"claude-web 的实际调用"发往 `/v1/messages` 的请求头，17 项指纹头逐字一致、头名集合相同、OAuth token 相同：
+
+- `user-agent: claude-cli/2.1.195 (external, sdk-cli)`
+- `anthropic-beta:` 完整 beta 串一致（`claude-code-…`、`oauth-2025-04-20` 等）
+- `x-app: cli`、`anthropic-version: 2023-06-01`、`anthropic-dangerous-direct-browser-access: true`
+- `x-stainless-*`：arch / lang / os / package-version / runtime / runtime-version / timeout 全一致
+  - 其中 `x-stainless-runtime-version` 是 CLI 自带打包的 node 版本（非系统 node），进一步说明指纹完全由该二进制决定。
+
+复现：`node test/mitm-proxy.mjs`（需先用 openssl 生成 `ca.crt`/`leaf.{crt,key}`，再以 `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` 跑两次 claude 对比，步骤见脚本头注释）。
+
+两点说明：
+- UA 里的 `sdk-cli` 表示无头（headless）模式，等同于任何人执行 `claude -p` 或用 Claude Agent SDK 时的取值，仍是第一方 claude-cli；交互式 TUI 取值为 `cli`。
+- 请求体同样带 Claude Code 自己的系统提示词与工具定义（同一 agent）。唯一有意的差异是默认 `--permission-mode plan`（纯聊天、不改文件）；若想让请求体更接近默认会话，把 `config.json` 的 `claudePermissionMode` 改为 `default`。
+
 ## 快速开始
 
 需要 Node.js（已用 v20 验证）。
