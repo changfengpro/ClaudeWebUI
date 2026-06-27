@@ -9,5 +9,12 @@
   "claudeModels": ["sonnet", "opus", "haiku"],
   "defaultClaudeModel": "sonnet",
   "codexModels": ["", "gpt-5.5", "gpt-5-codex", "o3"],
-  "defaultCodexModel": ""
+  "defaultCodexModel": "",
+  "models": [
+    { "id": "claude-sonnet", "provider": "claude", "model": "sonnet" },
+    { "id": "claude-opus", "provider": "claude", "model": "opus" },
+    { "id": "claude-haiku", "provider": "claude", "model": "haiku" },
+    { "id": "codex", "provider": "codex", "model": "" },
+    { "id": "codex-gpt-5.5", "provider": "codex", "model": "gpt-5.5" }
+  ]
 }

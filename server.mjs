@@ -32,6 +32,14 @@ const defaultConfig = {
   // codex 模型留空表示用 ~/.codex/config.toml 里的默认；下面只是 UI 备选
   codexModels: ['', 'gpt-5.5', 'gpt-5-codex', 'o3'],
   defaultCodexModel: '',
+  // OpenAI 兼容接口暴露的模型（供 Open WebUI 的模型下拉选择 provider+model）
+  models: [
+    { id: 'claude-sonnet', provider: 'claude', model: 'sonnet' },
+    { id: 'claude-opus', provider: 'claude', model: 'opus' },
+    { id: 'claude-haiku', provider: 'claude', model: 'haiku' },
+    { id: 'codex', provider: 'codex', model: '' },
+    { id: 'codex-gpt-5.5', provider: 'codex', model: 'gpt-5.5' },
+  ],
 };
 function loadConfig() {
   let fileConfig = {};
@@ -358,6 +366,21 @@ const server = http.createServer(async (req, res) => {
     if (p === '/favicon.ico') {
       res.writeHead(204); return res.end();
     }
+
+    // OpenAI 兼容接口（Open WebUI 把它当作一个 OpenAI 连接）
+    if (p.startsWith('/v1/')) {
+      if (method === 'OPTIONS') {
+        res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' });
+        return res.end();
+      }
+      if (p === '/v1/models' && method === 'GET') {
+        const data = (CONFIG.models || []).map(m => ({ id: m.id, object: 'model', created: 0, owned_by: m.provider }));
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        return res.end(JSON.stringify({ object: 'list', data }));
+      }
+      if (p === '/v1/chat/completions' && method === 'POST') return handleChatCompletions(req, res);
+      return sendJson(res, 404, { error: { message: 'not found' } });
+    }
     // 静态资源
     if (method === 'GET' && (p === '/' || p.startsWith('/vendor/') || p === '/index.html')) {
       return serveStatic(res, p);
@@ -474,6 +497,86 @@ async function handleMessage(req, res, id) {
     cliSessionId: conv.cliSessionId,
   });
   res.end();
+}
+
+// ===== OpenAI 兼容接口（供 Open WebUI 等客户端使用，内部 spawn 真实 CLI，指纹不变）=====
+// 多轮：OpenAI 协议无状态，客户端每次发全量 history。这里把会话映射到一条 CLI 会话，
+// 线性续聊时只把最新一条 user 消息经 --resume / codex exec resume 发出去——这样发往
+// api.anthropic.com 的请求与真实交互式 CLI 的多轮请求结构一致。
+const oaiSessions = new Map(); // key: "provider:chatKey" -> { cliSessionId, count }
+
+function contentText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map(p => typeof p === 'string' ? p : (p?.text || '')).join('');
+  return '';
+}
+function resolveModel(id) { return (CONFIG.models || []).find(m => m.id === id) || null; }
+function renderTranscript(msgs) {
+  return msgs.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${contentText(m.content)}`).join('\n\n');
+}
+function hashKey(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return 'k' + (h >>> 0).toString(36);
+}
+
+async function handleChatCompletions(req, res) {
+  let body;
+  try { body = await readJsonBody(req); } catch { return sendJson(res, 400, { error: { message: 'invalid json' } }); }
+  const route = resolveModel(body.model);
+  if (!route) return sendJson(res, 400, { error: { message: `unknown model: ${body.model}` } });
+
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const stream = body.stream !== false;
+  const sys = messages.filter(m => m.role === 'system').map(m => contentText(m.content)).join('\n\n');
+  const nonSystem = messages.filter(m => m.role !== 'system');
+  const lastUser = [...nonSystem].reverse().find(m => m.role === 'user');
+  const firstUser = nonSystem.find(m => m.role === 'user');
+  // 会话键：优先用客户端带的 chat_id，否则用「首条 user 消息 + 模型」哈希（同一会话稳定）
+  const chatId = body.metadata?.chat_id || body.chat_id || hashKey(contentText(firstUser?.content) + '|' + body.model);
+  const sk = route.provider + ':' + chatId;
+  const sess = oaiSessions.get(sk);
+  const L = nonSystem.length;
+
+  let userText, cliSessionId = null;
+  if (sess && (L - 1) === sess.count) {           // 线性续聊：只发最新一条 user
+    userText = contentText(lastUser?.content); cliSessionId = sess.cliSessionId;
+  } else if (!sess && L <= 1) {                    // 全新会话首轮
+    userText = contentText(lastUser?.content) || '';
+  } else {                                         // 接管已有历史 / 编辑 / 重新生成：用全量历史重起一段
+    userText = renderTranscript(nonSystem);
+  }
+
+  const conv = { id: sk, provider: route.provider, model: route.model, systemPrompt: sys, cliSessionId };
+  const runner = route.provider === 'codex' ? runCodex : runClaude;
+  req.on('close', () => { const c = running.get(sk); if (c) c.kill('SIGTERM'); });
+
+  const cid = 'chatcmpl-' + randomUUID();
+  const created = Math.floor(Date.now() / 1000);
+
+  if (stream) {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'Access-Control-Allow-Origin': '*' });
+    const chunk = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id: cid, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+    chunk({ role: 'assistant', content: '' });
+    let any = false;
+    const result = await runner(conv, userText, { onDelta: (t) => { any = true; chunk({ content: t }); } });
+    if (result.error && !any) chunk({ content: `⚠ ${result.error}` });
+    chunk({}, 'stop');
+    res.write('data: [DONE]\n\n');
+    res.end();
+    oaiSessions.set(sk, { cliSessionId: result.sessionId || cliSessionId, count: L + 1 });
+  } else {
+    const result = await runner(conv, userText, { onDelta: () => {} });
+    oaiSessions.set(sk, { cliSessionId: result.sessionId || cliSessionId, count: L + 1 });
+    const u = result.usage || {};
+    let content = result.text || '';
+    if (result.error && !content) content = `⚠ ${result.error}`;
+    sendJson(res, 200, {
+      id: cid, object: 'chat.completion', created, model: body.model,
+      choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: u.input_tokens || 0, completion_tokens: u.output_tokens || 0, total_tokens: (u.input_tokens || 0) + (u.output_tokens || 0) },
+    });
+  }
 }
 
 // ---------- 启动 ----------

@@ -3,6 +3,9 @@ data/
 homes/
 node_modules/
 *.log
+# Open WebUI 的 venv 与数据目录（本地运行时产物，不入库）
+.owui-venv/
+.owui-data/
 # 指纹验证用的本地证书与抓包（含敏感信息，不入库）
 test/*.crt
 test/*.key
