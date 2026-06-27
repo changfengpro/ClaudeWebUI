@@ -1,4 +1,4 @@
-# claude-web
+# ClaudeWebUI
 
 一个本地后端，把 `claude` / `codex` CLI 包成 **OpenAI 兼容接口**：任何 OpenAI 协议的客户端（Open WebUI、Cursor、curl…）都能用，在模型下拉里选 claude 或 codex，后端内部 spawn 真实 CLI——云端看到的请求就是 claude-cli / codex-cli 本尊。会话独立、无需登录，CLI 的 `/resume`、`codex resume` 看不到这里产生的会话。
 
@@ -26,9 +26,9 @@
 
 ## 请求指纹与 claude-cli 一致
 
-claude-web **自身不发任何 API 请求**。每一个到 `api.anthropic.com` 的请求都是被 spawn 的真实 `claude` 二进制发出的，因此云端看到的请求与你直接用 claude CLI 完全一致——不是模仿，是同一个进程。
+ClaudeWebUI **自身不发任何 API 请求**。每一个到 `api.anthropic.com` 的请求都是被 spawn 的真实 `claude` 二进制发出的，因此云端看到的请求与你直接用 claude CLI 完全一致——不是模仿，是同一个进程。
 
-已用本地 MITM 代理实测对比"原生 `claude -p`"与"claude-web 的实际调用"发往 `/v1/messages` 的请求头，17 项指纹头逐字一致、头名集合相同、OAuth token 相同：
+已用本地 MITM 代理实测对比"原生 `claude -p`"与"ClaudeWebUI 的实际调用"发往 `/v1/messages` 的请求头，17 项指纹头逐字一致、头名集合相同、OAuth token 相同：
 
 - `user-agent: claude-cli/2.1.195 (external, sdk-cli)`
 - `anthropic-beta:` 完整 beta 串一致（`claude-code-…`、`oauth-2025-04-20` 等）
@@ -50,7 +50,7 @@ claude-web **自身不发任何 API 请求**。每一个到 `api.anthropic.com` 
 
 ```bash
 pyenv install 3.11.15
-cd ~/project/claude-web
+cd ~/project/ClaudeWebUI
 ~/.pyenv/versions/3.11.15/bin/python -m venv .owui-venv
 .owui-venv/bin/pip install -U pip
 # CPU 版 torch（仅 RAG 嵌入用，CPU 足够；GPU 版对聊天无提升）
@@ -80,7 +80,7 @@ cd ~/project/claude-web
 需要 Node.js（已用 v20 验证）。
 
 ```bash
-cd /home/rmer/project/claude-web
+cd /home/rmer/project/ClaudeWebUI
 node server.mjs      # 或 ./run.sh
 ```
 

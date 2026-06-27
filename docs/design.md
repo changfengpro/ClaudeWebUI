@@ -1,4 +1,4 @@
-# claude-web 设计文档
+# ClaudeWebUI 设计文档
 
 日期：2026-06-27
 

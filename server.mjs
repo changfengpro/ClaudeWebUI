@@ -1,4 +1,4 @@
-// claude-web —— 本地复用 claude / codex CLI 配置的网页聊天服务
+// ClaudeWebUI —— 本地复用 claude / codex CLI 配置的网页聊天服务
 // 单文件后端，无第三方框架。只监听 127.0.0.1。
 //
 // 设计要点见 docs/design.md：
@@ -584,7 +584,7 @@ let SETUP = { claudeOk: false, codexOk: false };
 bootstrap().then((setup) => {
   SETUP = setup;
   server.listen(CONFIG.port, CONFIG.host, () => {
-    console.log(`claude-web 已启动： http://${CONFIG.host}:${CONFIG.port}`);
+    console.log(`ClaudeWebUI 已启动： http://${CONFIG.host}:${CONFIG.port}`);
     console.log(`  claude 凭据软链：${SETUP.claudeOk ? 'OK' : '缺失'}    codex 凭据软链：${SETUP.codexOk ? 'OK' : '缺失'}`);
     console.log(`  会话隔离在： ${DIRS.claudeHome}/projects、${DIRS.codexHome}/sessions（正常 /resume 看不到）`);
   });
