@@ -68,6 +68,8 @@ cd ~/project/claude-web
 
 也可分开跑：终端 1 `./run.sh`（后端，8787），终端 2 `./run-openwebui.sh`（Open WebUI，3000）。
 
+**停止**：前台运行的按 `Ctrl-C`；后台运行的执行 `./stop.sh`（按端口停掉后端与 Open WebUI）。
+
 要点：
 - `run-openwebui.sh` 已设 `WEBUI_AUTH=False`（无需登录）、`ENABLE_OLLAMA_API=False`、把 OpenAI 连接指向 `127.0.0.1:8787/v1`、`HF_HUB_OFFLINE=1`（嵌入模型已预缓存，秒起）。
 - Open WebUI 的「追问建议」「标题自动生成」会额外调用模型（即额外 spawn 几次 CLI）。不想要可在 Open WebUI 设置里关掉，省额度。
