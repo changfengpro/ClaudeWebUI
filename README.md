@@ -2,7 +2,7 @@
 
 一个本地网页聊天界面，直接复用本机 `claude` 与 `codex` CLI 的配置，无需登录；会话独立保存，CLI 的 `/resume`、`codex resume` 看不到这里产生的会话。
 
-界面风格接近 Open WebUI：左侧会话列表，主区流式对话，Markdown 与代码高亮渲染。
+界面风格接近 Open WebUI：左侧会话列表（按日期分组），主区流式对话，Markdown 与代码高亮渲染，明暗主题切换，token / 费用显示。采用 Geist 字体与冷色调暗色主题，全部资源本地化、离线可用。
 
 ## 满足的三个需求
 
@@ -78,7 +78,7 @@ node server.mjs      # 或 ./run.sh
 ```
 server.mjs            后端（单文件，无框架）
 public/index.html     前端（自包含，内联 CSS/JS）
-public/vendor/        marked、highlight.js、DOMPurify 本地副本
+public/vendor/        marked、highlight.js、DOMPurify、Geist 字体 本地副本
 config.json           配置
 run.sh                启动脚本
 data/conversations/   会话 JSON（gitignore）

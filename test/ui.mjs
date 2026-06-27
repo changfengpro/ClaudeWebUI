@@ -36,6 +36,8 @@ await page.waitForFunction(() => {
 }, { timeout: 8000 });
 ok(true, '助手回复已流式渲染');
 ok((await page.locator('.msg.user .content').textContent()).includes('你好世界'), '用户消息显示正确');
+// 等流式真正结束（发送按钮重新出现）再断言停止按钮隐藏
+await page.waitForFunction(() => getComputedStyle(document.querySelector('#stopBtn')).display === 'none', { timeout: 8000 });
 ok(await page.locator('#stopBtn').isHidden(), '完成后停止按钮隐藏');
 
 // 侧栏出现该会话
