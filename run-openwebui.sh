@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 # 后端地址（本项目的 OpenAI 兼容接口）
 BACKEND="${BACKEND:-http://127.0.0.1:8787/v1}"
-OWUI_PORT="${OWUI_PORT:-8080}"
+OWUI_PORT="${OWUI_PORT:-3000}"
 
 export OPENAI_API_BASE_URL="$BACKEND"
 export OPENAI_API_KEY="local"            # 后端不校验，占位即可

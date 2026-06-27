@@ -63,10 +63,10 @@ cd ~/project/claude-web
 
 ```bash
 ./start.sh
-# 打开 http://127.0.0.1:8080 ，模型下拉选 claude-sonnet 即可对话
+# 打开 http://127.0.0.1:3000 ，模型下拉选 claude-sonnet 即可对话
 ```
 
-也可分开跑：终端 1 `./run.sh`（后端，8787），终端 2 `./run-openwebui.sh`（Open WebUI，8080）。
+也可分开跑：终端 1 `./run.sh`（后端，8787），终端 2 `./run-openwebui.sh`（Open WebUI，3000）。
 
 要点：
 - `run-openwebui.sh` 已设 `WEBUI_AUTH=False`（无需登录）、`ENABLE_OLLAMA_API=False`、把 OpenAI 连接指向 `127.0.0.1:8787/v1`、`HF_HUB_OFFLINE=1`（嵌入模型已预缓存，秒起）。
