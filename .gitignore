@@ -13,3 +13,4 @@ test/*.csr
 test/*.srl
 test/san.ext
 test/*.jsonl
+.webui_secret_key

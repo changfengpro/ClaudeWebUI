@@ -71,6 +71,16 @@ conversations/<id>.json = {
 - `test/ui.mjs`：浏览器校验渲染与发送流程。
 - 隔离验证：真聊后确认会话只在隔离 home，`~/.claude/projects` 无对应文件。
 
+## 追加：OpenAI 兼容接口 + Open WebUI 前端（2026-06-27）
+
+在原简易 UI 之外，同进程增加了 OpenAI 兼容接口，使本后端可直接作为 Open WebUI（或任何 OpenAI 协议客户端）的模型提供方：
+
+- `GET /v1/models`：暴露 `config.json` 的 `models` 映射（id → provider+model），如 `claude-sonnet`、`codex`。
+- `POST /v1/chat/completions`：流式/非流式均支持。按 model id 解析 provider+model，复用 `runClaude`/`runCodex`（即指纹与简易 UI 完全相同的真实 CLI 调用）。
+- 多轮：OpenAI 协议无状态、客户端每次发全量历史。以「客户端 chat_id 或首条 user 消息哈希」为会话键映射一条 CLI 会话；线性续聊只把最新一条 user 消息经 `--resume`/`codex exec resume` 发出，使发往云端的多轮请求结构与真实交互式 CLI 一致；历史与会话不匹配（编辑/重生成/重启接管）时回退为「全量历史重起一段」。
+
+Open WebUI 侧：不改其代码，仅用环境变量把它的 OpenAI 连接指向本后端（`run-openwebui.sh`），并设 `WEBUI_AUTH=False`（无需登录）、`ENABLE_OLLAMA_API=False`。其 RAG 嵌入模型 all-MiniLM-L6-v2 预下载进 HF 缓存后以 `HF_HUB_OFFLINE=1` 秒起（`setup-embedding.sh`）。本机用 pyenv 3.11.15 建独立 venv，CPU 版 torch（聊天推理在云端、不经 torch，GPU 无收益）。
+
 ## 验证结果（2026-06-27）
 
 - 桩测试 22/22 通过；UI 测试 11/11 通过、无 JS 错误。

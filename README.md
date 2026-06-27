@@ -1,8 +1,11 @@
 # claude-web
 
-一个本地网页聊天界面，直接复用本机 `claude` 与 `codex` CLI 的配置，无需登录；会话独立保存，CLI 的 `/resume`、`codex resume` 看不到这里产生的会话。
+一个本地后端，把 `claude` / `codex` CLI 包成 **OpenAI 兼容接口**：任何 OpenAI 协议的客户端（Open WebUI、Cursor、curl…）都能用，在模型下拉里选 claude 或 codex，后端内部 spawn 真实 CLI——云端看到的请求就是 claude-cli / codex-cli 本尊。会话独立、无需登录，CLI 的 `/resume`、`codex resume` 看不到这里产生的会话。
 
-界面风格接近 Open WebUI：左侧会话列表（按日期分组），主区流式对话，Markdown 与代码高亮渲染，明暗主题切换，token / 费用显示。采用 Geist 字体与冷色调暗色主题，全部资源本地化、离线可用。
+两种前端任选：
+
+- **Open WebUI（推荐）**：完整保留 Open WebUI 的全部功能，只把它的「OpenAI 连接」指向本后端。见下方「用 Open WebUI 作为前端」。
+- **内置简易 UI**：本项目自带的轻量网页(`/`)，左侧会话列表、流式、Markdown/高亮、明暗主题，零额外依赖、离线可用。
 
 ## 满足的三个需求
 
@@ -39,7 +42,38 @@ claude-web **自身不发任何 API 请求**。每一个到 `api.anthropic.com` 
 - UA 里的 `sdk-cli` 表示无头（headless）模式，等同于任何人执行 `claude -p` 或用 Claude Agent SDK 时的取值，仍是第一方 claude-cli；交互式 TUI 取值为 `cli`。
 - 请求体同样带 Claude Code 自己的系统提示词与工具定义（同一 agent）。唯一有意的差异是默认 `--permission-mode plan`（纯聊天、不改文件）；若想让请求体更接近默认会话，把 `config.json` 的 `claudePermissionMode` 改为 `default`。
 
-## 快速开始
+## 用 Open WebUI 作为前端（推荐）
+
+思路：Open WebUI 本身**一行不改**，只把它的「OpenAI 连接」指向本后端的 `/v1`。在 Open WebUI 的模型下拉里选 `claude-sonnet` / `claude-opus` / `claude-haiku` / `codex` 等，就等于选 provider + 模型；它的所有功能（多会话、知识库/RAG、追问建议、标题生成、语音等）照常工作。
+
+一次性准备（本机无 docker，用 pyenv 装独立 Python，不动全局 3.8）：
+
+```bash
+pyenv install 3.11.15
+cd ~/project/claude-web
+~/.pyenv/versions/3.11.15/bin/python -m venv .owui-venv
+.owui-venv/bin/pip install -U pip
+# CPU 版 torch（仅 RAG 嵌入用，CPU 足够；GPU 版对聊天无提升）
+.owui-venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+.owui-venv/bin/pip install open-webui
+./setup-embedding.sh        # 预下载 RAG 嵌入模型(约 90MB，走 hf-mirror 镜像)
+```
+
+启动（一条命令同时拉起后端 + Open WebUI）：
+
+```bash
+./start.sh
+# 打开 http://127.0.0.1:8080 ，模型下拉选 claude-sonnet 即可对话
+```
+
+也可分开跑：终端 1 `./run.sh`（后端，8787），终端 2 `./run-openwebui.sh`（Open WebUI，8080）。
+
+要点：
+- `run-openwebui.sh` 已设 `WEBUI_AUTH=False`（无需登录）、`ENABLE_OLLAMA_API=False`、把 OpenAI 连接指向 `127.0.0.1:8787/v1`、`HF_HUB_OFFLINE=1`（嵌入模型已预缓存，秒起）。
+- Open WebUI 的「追问建议」「标题自动生成」会额外调用模型（即额外 spawn 几次 CLI）。不想要可在 Open WebUI 设置里关掉，省额度。
+- torch 用 CPU 版即可：聊天推理在云端、不经过 torch；GPU 仅对重度本地 RAG/本地语音转写有意义。
+
+## 快速开始（内置简易 UI）
 
 需要 Node.js（已用 v20 验证）。
 
