@@ -5,11 +5,6 @@
   "codexBin": "codex",
   "claudePermissionMode": "plan",
   "codexSandbox": "read-only",
-  "defaultProvider": "claude",
-  "claudeModels": ["sonnet", "opus", "haiku"],
-  "defaultClaudeModel": "sonnet",
-  "codexModels": ["", "gpt-5.5", "gpt-5-codex", "o3"],
-  "defaultCodexModel": "",
   "models": [
     { "id": "claude-sonnet", "provider": "claude", "model": "sonnet" },
     { "id": "claude-opus", "provider": "claude", "model": "opus" },

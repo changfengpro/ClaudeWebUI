@@ -2,16 +2,13 @@
 
 一个本地后端，把 `claude` / `codex` CLI 包成 **OpenAI 兼容接口**：任何 OpenAI 协议的客户端（Open WebUI、Cursor、curl…）都能用，在模型下拉里选 claude 或 codex，后端内部 spawn 真实 CLI——云端看到的请求就是 claude-cli / codex-cli 本尊。会话独立、无需登录，CLI 的 `/resume`、`codex resume` 看不到这里产生的会话。
 
-两种前端任选：
-
-- **Open WebUI（推荐）**：完整保留 Open WebUI 的全部功能，只把它的「OpenAI 连接」指向本后端。见下方「用 Open WebUI 作为前端」。
-- **内置简易 UI**：本项目自带的轻量网页(`/`)，左侧会话列表、流式、Markdown/高亮、明暗主题，零额外依赖、离线可用。
+前端用 **Open WebUI**：本身一行不改，只把它的「OpenAI 连接」指向本后端，保留 Open WebUI 的全部功能。见下方「用 Open WebUI 作为前端」。
 
 ## 满足的三个需求
 
 1. **复用本地配置、无需登录**：通过软链复用 `~/.claude/.credentials.json` 与 `~/.codex/auth.json`，不重新登录，token 刷新会写回原文件。
-2. **会话独立**：每个网页会话是独立的一条记录，存在本项目自己的 JSON 库里，互不干扰。
-3. **CLI `/resume` 看不到**：网页会话对应的 CLI 会话文件落在本项目的隔离目录，不进 `~/.claude/projects`、`~/.codex/sessions`，因此正常的 `/resume`、`codex resume` 列不到。
+2. **会话独立**：每个会话映射到一条独立的 CLI 会话，互不干扰。
+3. **CLI `/resume` 看不到**：会话对应的 CLI 会话文件落在本项目的隔离目录，不进 `~/.claude/projects`、`~/.codex/sessions`，因此正常的 `/resume`、`codex resume` 列不到。
 
 ## 工作原理
 
@@ -21,8 +18,8 @@
 - 每轮对话 spawn 一个子进程，环境变量隔离会话存储：
   - Claude：`CLAUDE_CONFIG_DIR=homes/claude-home`，命令 `claude -p <消息> --output-format stream-json --include-partial-messages …`，首轮 `--session-id`、续聊 `--resume`。
   - Codex：`CODEX_HOME=homes/codex-home`，命令 `codex exec <消息> --json …`，续聊 `codex exec resume <thread_id>`。
-- 子进程的流式 JSON 输出逐行解析，通过 SSE 推给浏览器实时显示。
-- 会话内容另存一份在 `data/conversations/<id>.json`（与 CLI 的会话文件分离），供网页列表、搜索、导出使用。
+- 子进程的流式 JSON 输出逐行解析，转成 OpenAI 的 SSE 流（`chat.completion.chunk`）回给客户端。
+- OpenAI 协议无状态，客户端每次发全量历史；后端按 `chat_id`（或首条消息哈希）把它映射到一条 CLI 会话，线性续聊只把最新一条 user 消息经 `--resume` / `codex exec resume` 发出去——状态只在内存里维护，不落额外的会话库。
 
 ## 请求指纹与 claude-cli 一致
 
@@ -83,8 +80,7 @@ cd ~/project/ClaudeWebUI
 | `claudeBin` / `codexBin` | CLI 可执行名或路径 |
 | `claudePermissionMode` | Claude 权限模式，默认 `plan`（纯聊天、不改文件） |
 | `codexSandbox` | Codex 沙箱，默认 `read-only` |
-| `claudeModels` / `codexModels` | UI 模型下拉备选 |
-| `defaultClaudeModel` / `defaultCodexModel` | 默认模型，codex 留空表示用 `~/.codex/config.toml` 里的默认 |
+| `models` | OpenAI 接口暴露的模型列表，每项 `{ id, provider, model }`；`id` 即模型下拉里看到的名字，`provider` 为 `claude`/`codex`，`model` 传给 CLI（codex 留空表示用 `~/.codex/config.toml` 的默认） |
 
 环境变量可覆盖：`PORT`、`HOST`、`CLAUDE_WEB_CLAUDE_BIN`、`CLAUDE_WEB_CODEX_BIN`。
 
@@ -101,11 +97,12 @@ cd ~/project/ClaudeWebUI
 ## 目录结构
 
 ```
-server.mjs            后端（单文件，无框架）
-public/index.html     前端（自包含，内联 CSS/JS）
-public/vendor/        marked、highlight.js、DOMPurify、Geist 字体 本地副本
+server.mjs            后端（单文件，无框架；只暴露 OpenAI 兼容接口 /v1）
 config.json           配置
-data/conversations/   会话 JSON（gitignore）
+run-openwebui.sh      启动 Open WebUI 并指向本后端
+start.sh / stop.sh    一键起停（后端 + Open WebUI）
+setup-embedding.sh    预下载 Open WebUI 的 RAG 嵌入模型
+data/uploads/         codex 图片临时落盘处（gitignore）
 homes/                隔离 home 与凭据软链（gitignore，不入库）
 test/                 测试
 docs/design.md        设计文档
@@ -114,8 +111,8 @@ docs/design.md        设计文档
 ## 测试
 
 ```bash
-node test/smoke.mjs   # 桩测试：创建→流式→落库→续聊→停止→删除，不联网、不耗额度
-node test/ui.mjs      # 浏览器 UI 测试，需先 npm i playwright-core（用缓存的 chromium）
+node test/openai-smoke.mjs   # 桩测试：/v1/models、流式/非流式、续聊走 resume、provider 路由，不联网、不耗额度
+node test/mitm-proxy.mjs     # 指纹验证：对比原生 claude 与本服务的 /v1/messages 请求头（需先按脚本头注释备好证书）
 ```
 
 ## 图片上传
