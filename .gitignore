@@ -1,0 +1,5 @@
+# 用户数据与隔离 home（含指向真实凭据的软链，绝不入库）
+data/
+homes/
+node_modules/
+*.log

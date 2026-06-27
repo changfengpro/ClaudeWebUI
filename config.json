@@ -1,0 +1,13 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "claudeBin": "claude",
+  "codexBin": "codex",
+  "claudePermissionMode": "plan",
+  "codexSandbox": "read-only",
+  "defaultProvider": "claude",
+  "claudeModels": ["sonnet", "opus", "haiku"],
+  "defaultClaudeModel": "sonnet",
+  "codexModels": ["", "gpt-5.5", "gpt-5-codex", "o3"],
+  "defaultCodexModel": ""
+}
