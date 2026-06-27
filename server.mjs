@@ -7,7 +7,7 @@
 //  - 流式：spawn claude / codex 子进程的 stream-json 输出，逐行解析后用 SSE 推给浏览器
 
 import http from 'node:http';
-import { promises as fs, existsSync, readFileSync } from 'node:fs';
+import { promises as fs, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -186,12 +186,17 @@ function splitLines(stream, onLine) {
 }
 
 // 运行 claude，返回 {text, sessionId, usage, cost, error, interrupted}
-function runClaude(conv, userText, { onDelta }) {
+function runClaude(conv, userText, { onDelta, images = [] }) {
   return new Promise((resolve) => {
     let sessionId = conv.cliSessionId;
-    const args = ['-p', userText,
-      '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-      '--permission-mode', CONFIG.claudePermissionMode];
+    // 带图片时改用 stream-json 输入：经 stdin 发一条含 image 块的 user 消息，
+    // 这与 Claude Code 交互式发图的内部格式一致，发往云端的请求体不变。
+    const useStdin = images.length > 0;
+    const args = ['-p'];
+    if (!useStdin) args.push(userText);
+    args.push('--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+      '--permission-mode', CONFIG.claudePermissionMode);
+    if (useStdin) args.push('--input-format', 'stream-json');
     if (conv.model) args.push('--model', conv.model);
     if (conv.systemPrompt) args.push('--append-system-prompt', conv.systemPrompt);
     if (sessionId) args.push('--resume', sessionId);
@@ -200,9 +205,19 @@ function runClaude(conv, userText, { onDelta }) {
     const child = spawn(CONFIG.claudeBin, args, {
       cwd: DIRS.workdir,
       env: { ...process.env, CLAUDE_CONFIG_DIR: DIRS.claudeHome },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
     running.set(conv.id, child);
+
+    if (useStdin) {
+      const content = [];
+      if (userText) content.push({ type: 'text', text: userText });
+      for (const img of images) {
+        content.push({ type: 'image', source: { type: 'base64', media_type: img.media_type, data: img.data } });
+      }
+      child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n');
+      child.stdin.end();
+    }
 
     let acc = '', resultText = null, usage = null, cost = null, errMsg = null;
     let stderr = '';
@@ -245,15 +260,23 @@ function runClaude(conv, userText, { onDelta }) {
 }
 
 // 运行 codex exec，返回同样结构。会话续聊用 codex exec resume <thread_id>
-function runCodex(conv, userText, { onDelta }) {
+function runCodex(conv, userText, { onDelta, images = [] }) {
   return new Promise((resolve) => {
     let threadId = conv.cliSessionId;
+    // codex 原生支持图片：落临时文件后用 -i 附加，结束时清理。
+    const imgPaths = [];
+    for (const img of images) {
+      const fp = path.join(DIRS.uploads, `oai-${randomUUID()}${mediaExt(img.media_type)}`);
+      try { writeFileSync(fp, Buffer.from(img.data, 'base64')); imgPaths.push(fp); } catch { /* ignore */ }
+    }
+    const imgArgs = imgPaths.flatMap((fp) => ['-i', fp]);
+    const cleanupImages = () => { for (const fp of imgPaths) fs.unlink(fp).catch(() => {}); };
     let args;
     if (threadId) {
-      args = ['exec', 'resume', threadId, userText, '--json',
+      args = ['exec', 'resume', threadId, userText, '--json', ...imgArgs,
         '--sandbox', CONFIG.codexSandbox, '--skip-git-repo-check', '-C', DIRS.workdir];
     } else {
-      args = ['exec', userText, '--json',
+      args = ['exec', userText, '--json', ...imgArgs,
         '--sandbox', CONFIG.codexSandbox, '--skip-git-repo-check', '-C', DIRS.workdir];
       if (conv.model) args.push('-m', conv.model);
     }
@@ -304,10 +327,12 @@ function runCodex(conv, userText, { onDelta }) {
 
     child.on('error', (e) => {
       running.delete(conv.id);
+      cleanupImages();
       resolve({ text: acc, sessionId: threadId, error: `无法启动 codex：${e.message}` });
     });
     child.on('close', (code, signal) => {
       running.delete(conv.id);
+      cleanupImages();
       const interrupted = signal === 'SIGTERM' || signal === 'SIGKILL';
       let error = errMsg;
       if (!acc && !interrupted && code !== 0 && !error) {
@@ -510,6 +535,21 @@ function contentText(content) {
   if (Array.isArray(content)) return content.map(p => typeof p === 'string' ? p : (p?.text || '')).join('');
   return '';
 }
+function mediaExt(mediaType) {
+  return ({ 'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' })[mediaType] || '.png';
+}
+// 从 OpenAI 多模态 content 里取出 base64 图片（Open WebUI 上传的图片为 data: URL）
+function extractImages(content) {
+  if (!Array.isArray(content)) return [];
+  const out = [];
+  for (const p of content) {
+    if (!p || p.type !== 'image_url') continue;
+    const url = typeof p.image_url === 'string' ? p.image_url : p.image_url?.url;
+    const m = typeof url === 'string' && /^data:([^;,]+)?;base64,(.*)$/s.exec(url);
+    if (m) out.push({ media_type: m[1] || 'image/png', data: m[2] });
+  }
+  return out;
+}
 function resolveModel(id) { return (CONFIG.models || []).find(m => m.id === id) || null; }
 function renderTranscript(msgs) {
   return msgs.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${contentText(m.content)}`).join('\n\n');
@@ -539,6 +579,7 @@ async function handleChatCompletions(req, res) {
   const L = nonSystem.length;
 
   let userText, cliSessionId = null;
+  const images = extractImages(lastUser?.content);   // 最新一条 user 携带的图片
   if (sess && (L - 1) === sess.count) {           // 线性续聊：只发最新一条 user
     userText = contentText(lastUser?.content); cliSessionId = sess.cliSessionId;
   } else if (!sess && L <= 1) {                    // 全新会话首轮
@@ -559,14 +600,14 @@ async function handleChatCompletions(req, res) {
     const chunk = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id: cid, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
     chunk({ role: 'assistant', content: '' });
     let any = false;
-    const result = await runner(conv, userText, { onDelta: (t) => { any = true; chunk({ content: t }); } });
+    const result = await runner(conv, userText, { images, onDelta: (t) => { any = true; chunk({ content: t }); } });
     if (result.error && !any) chunk({ content: `⚠ ${result.error}` });
     chunk({}, 'stop');
     res.write('data: [DONE]\n\n');
     res.end();
     oaiSessions.set(sk, { cliSessionId: result.sessionId || cliSessionId, count: L + 1 });
   } else {
-    const result = await runner(conv, userText, { onDelta: () => {} });
+    const result = await runner(conv, userText, { images, onDelta: () => {} });
     oaiSessions.set(sk, { cliSessionId: result.sessionId || cliSessionId, count: L + 1 });
     const u = result.usage || {};
     let content = result.text || '';
